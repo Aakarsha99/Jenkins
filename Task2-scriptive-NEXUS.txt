@@ -1,0 +1,67 @@
+node {
+    // Append the Maven binary path to the PATH environment variable
+    env.PATH += ":/opt/apache-maven-3.9.7/bin/"
+
+    // Setting environment variables
+    withEnv([
+        'NEXUS_VERSION=nexus3',
+        'NEXUS_PROTOCOL=http',
+        'NEXUS_URL=18.169.191.251:8081',
+        'NEXUS_REPOSITORY=task1/',
+        'NEXUS_CREDENTIAL_ID=nexus'
+    ]) {
+        stage('Checkout') {
+            // Clone the source
+            git 'https://github.com/Aakarsha99/spring3-mvc-maven-xml-hello-world-1.git'
+        }
+        stage('Build') {
+            // Build the project
+            sh "mvn clean install"
+        }
+        stage('Publish to Nexus') {
+            script {
+                // Read POM xml file
+                def pom = readMavenPom file: "pom.xml"
+                // Find built artifact under target folder
+                def filesByGlob = findFiles(glob: "target/*.${pom.packaging}")
+                if (filesByGlob.size() == 0) {
+                    error "No artifact found to upload."
+                }
+                // Print some info from the artifact found
+                echo "${filesByGlob[0].name} ${filesByGlob[0].path} ${filesByGlob[0].directory} ${filesByGlob[0].length} ${filesByGlob[0].lastModified}"
+                // Extract the path from the File found
+                def artifactPath = filesByGlob[0].path
+                // Assign to a boolean response verifying If the artifact name exists
+                def artifactExists = fileExists artifactPath
+                if (artifactExists) {
+                    echo "*** File: ${artifactPath}, group: ${pom.groupId}, packaging: ${pom.packaging}, version ${BUILD_NUMBER}"
+                    nexusArtifactUploader(
+                        nexusVersion: env.NEXUS_VERSION,
+                        protocol: env.NEXUS_PROTOCOL,
+                        nexusUrl: env.NEXUS_URL,
+                        groupId: pom.groupId,
+                        version: BUILD_NUMBER,
+                        repository: env.NEXUS_REPOSITORY,
+                        credentialsId: env.NEXUS_CREDENTIAL_ID,
+                        artifacts: [
+                            [
+                                artifactId: pom.artifactId,
+                                classifier: '',
+                                file: artifactPath,
+                                type: pom.packaging
+                            ],
+                            [
+                                artifactId: pom.artifactId,
+                                classifier: '',
+                                file: "pom.xml",
+                                type: "pom"
+                            ]
+                        ]
+                    )
+                } else {
+                    error "*** File: ${artifactPath}, could not be found"
+                }
+            }
+        }
+    }
+}

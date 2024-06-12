@@ -1,0 +1,88 @@
+pipeline {
+    agent any
+    parameters {
+       ///teju/// string(name: 'BRANCH_NAME', defaultValue: 'master', description: 'Enter the branch name') 
+        string(name: 'BRANCH', defaultValue: 'master', description: 'Git branch to build from')
+        booleanParam(defaultValue: false, description: 'Perform Maven build', name: 'mvn_build')
+        booleanParam(defaultValue: false, description: 'Publish to Nexus', name: 'publish_to_nexus')
+    }
+    tools {
+        maven "mvn-home"
+    }
+    environment {
+        NEXUS_VERSION = "nexus3"
+        NEXUS_PROTOCOL = "http"
+        NEXUS_URL = "18.169.191.251:8081"
+        NEXUS_REPOSITORY = "task1"
+        NEXUS_CREDENTIAL_ID = "nexus"
+        ARTVERSION = "${env.BUILD_ID}"
+    }
+    stages {
+        stage("Clone code") {
+            steps {
+                script {
+                    git branch: "${params.BRANCH}", url: 'https://github.com/Aakarsha99/spring3-mvc-maven-xml-hello-world-1.git'
+                }
+            }
+        }
+        stage("mvn build") {
+            steps {
+                script {
+                    if (params.mvn_build) {
+                        sh 'mvn clean install'
+                    } else {
+                        echo "Skipping build"
+                    }
+                }
+            }
+        }
+        stage("publish to nexus") {
+            steps {
+                script {
+                    if (params.publish_to_nexus) {
+                        def pom = readMavenPom file: "pom.xml"
+                        def filesByGlob = findFiles(glob: "target/*.${pom.packaging}")
+                        
+                        if (filesByGlob.size() == 0) {
+                            error "No artifact found to upload."
+                        }
+
+                        def artifactPath = filesByGlob[0].path
+                        def artifactExists = fileExists artifactPath
+                        
+                        if (artifactExists) {
+                            echo "*** File: ${artifactPath}, group: ${pom.groupId}, packaging: ${pom.packaging}, version ${pom.version}"
+                            nexusArtifactUploader(
+                                nexusVersion: env.NEXUS_VERSION,
+                                protocol: env.NEXUS_PROTOCOL,
+                                nexusUrl: env.NEXUS_URL,
+                                groupId: pom.groupId,
+                                version: '${BUILD_NUMBER}',
+                                repository: env.NEXUS_REPOSITORY,
+                                credentialsId: env.NEXUS_CREDENTIAL_ID,
+                                artifacts: [
+                                    [
+                                        artifactId: pom.artifactId,
+                                        classifier: '',
+                                        file: artifactPath,
+                                        type: pom.packaging
+                                    ],
+                                    [
+                                        artifactId: pom.artifactId,
+                                        classifier: '',
+                                        file: "pom.xml",
+                                        type: "pom"
+                                    ]
+                                ]
+                            )
+                        } else {
+                            error "*** File: ${artifactPath}, could not be found"
+                        }
+                    } else {
+                        echo "Skipping Nexus upload"
+                    }
+                }
+            }
+        }
+    }
+}
